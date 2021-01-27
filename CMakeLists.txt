@@ -116,3 +116,5 @@ include(cmake/HandleFinalChecks.cmake)
 
 # Include CPack *after* all flags
 include(CPack)
+
+add_subdirectory(experimental)
