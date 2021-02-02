@@ -25,40 +25,51 @@ struct State {
 
 struct Measurement{
   Eigen::Matrix3d Rwr;
+  Eigen::Quaterniond qwr;
   Eigen::Vector3d twr;
   Eigen::Vector3d acc;
   Eigen::Vector3d omega; 
 
-  Measurement(Eigen::Matrix3d Rwr,
+  Measurement(Eigen::Matrix3d Rwr,                
+              Eigen::Quaterniond qwr,
               Eigen::Vector3d twr,
               Eigen::Vector3d acc,
               Eigen::Vector3d omega)
-    : Rwr(Rwr), twr(twr), acc(acc), omega(omega) {}
+    : Rwr(Rwr), qwr(qwr), twr(twr), acc(acc), omega(omega) {}
 
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
-struct PosError {
-  PosError(const Eigen::Vector3d& pos_measured)
-    : pos_measured_(pos_measured) {}
+struct PoseError {
+  PoseError(const Eigen::Vector3d& pos_measured,
+            const Eigen::Quaterniond& q_measured)
+    : pos_measured_(pos_measured), q_measured_(q_measured) {}
 
   template <typename T>
-  bool operator()(const T* const pos_hat_ptr, T* residuals_ptr) const {      
-    Eigen::Matrix<T, 3, 1> residuals(residuals_ptr);
+  bool operator()(const T* const pos_hat_ptr,
+                  const T* const q_hat_prt,
+                  T* residuals_ptr) const {      
+    Eigen::Matrix<T, 6, 1> residuals(residuals_ptr);
     Eigen::Matrix<T, 3, 1> pos_hat(pos_hat_ptr);
-    residuals = pos_hat - pos_measured_;
+    residuals.block(0, 0, 3, 1) = pos_hat - pos_measured_.template cast<T>();
+
+    Eigen::Quaternion<T> q_hat(q_hat_prt);
+    Eigen::Quaternion<T> q_delta = q_measured_.conjugate().template cast<T>() * q_hat;
+    residuals.block(3, 0, 3, 1) = q_delta.vec();
     return true;
   } 
   
-  static CostFunction* Create(const Eigen::Vector3d& pos_measured) {
-    return new AutoDiffCostFunction<PosError, 3, 3>(
-      new PosError(pos_measured));
+  static CostFunction* Create(const Eigen::Vector3d& pos_measured,
+                              const Eigen::Quaterniond& q_measured) {
+    return new AutoDiffCostFunction<PoseError, 6, 3, 4>(
+      new PoseError(pos_measured, q_measured));
   }
 
 EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 
 private:
   const Eigen::Vector3d pos_measured_;
+  const Eigen::Quaterniond q_measured_;
 };
 
 
@@ -134,24 +145,27 @@ std::vector<Measurement, Eigen::aligned_allocator<Measurement>> readSensorData(s
     while (std::getline(s, field,',')) {
       std::cout << "field: " << field << std::endl;
       row.push_back(std::stod(field));
+    
+      Eigen::Matrix3d Rwr;
+      Eigen::Quaterniond qwr;
+      Eigen::Vector3d twr;
+      Eigen::Vector3d acc;
+      Eigen::Vector3d omega; 
+      Rwr << row[0], row[1], row[2],
+            row[4], row[5], row[6],
+            row[8], row[9], row[10];
+      qwr = Rwr;
+      twr << row[3], row[7], row[11];
+      acc << row[16], row[17], row[18];
+      omega << row[19], row[20], row[21];
+      std::cout << "Rwr: " << Rwr << std::endl;
+      std::cout << "qwr: " << qwr.w() << " " << qwr.vec() << std::endl; 
+      std::cout << "twr: " << twr << std::endl;
+      std::cout << "acc: " << acc << std::endl;
+      std::cout << "omega: " << omega << std::endl;
+      
+      ret.push_back(Measurement(Rwr, qwr, twr, acc, omega));
     }
-
-    Eigen::Matrix3d Rwr;
-    Eigen::Vector3d twr;
-    Eigen::Vector3d acc;
-    Eigen::Vector3d omega; 
-    Rwr << row[0], row[1], row[2],
-           row[4], row[5], row[6],
-           row[8], row[9], row[10];
-    twr << row[3], row[7], row[11];
-    acc << row[16], row[17], row[18];
-    omega << row[19], row[20], row[21];
-    std::cout << "Rwr: " << Rwr << std::endl;
-    std::cout << "twr: " << twr << std::endl;
-    std::cout << "acc: " << acc << std::endl;
-    std::cout << "omega: " << omega << std::endl;
-
-    ret.push_back(Measurement(Rwr, twr, acc, omega));
   }
 
   return ret;
@@ -164,6 +178,7 @@ int main(int argc, char** argv) {
 
   std::string path = argv[1];
   std::vector<Measurement, Eigen::aligned_allocator<Measurement>> data = readSensorData(path);    
+  
   // int cnt = data.size();
   int cnt = 2;
 
@@ -177,10 +192,13 @@ int main(int argc, char** argv) {
 
   cnt = 0;
   for (auto& measure : data) {
-    ceres::CostFunction* pos_cost_function = PosError::Create(measure.twr);
+    ceres::CostFunction* pos_cost_function = PoseError::Create(measure.twr, measure.qwr);
     problem.AddResidualBlock(pos_cost_function,
                              loss_function,
-                             states[cnt].pos.data());
+                             states[cnt].pos.data(),
+                             states[cnt].q.coeffs().data());
+    problem.SetParameterization(states[cnt].q.coeffs().data(),
+                                quaternion_local_parameterization);      
     if (cnt > 0) {
       ceres::CostFunction* pred_cost_function = PredictionError::Create(measure.acc, measure.omega);
       problem.AddResidualBlock(pred_cost_function,
@@ -195,17 +213,6 @@ int main(int argc, char** argv) {
                                   quaternion_local_parameterization);      
       problem.SetParameterization(states[cnt].q.coeffs().data(),
                                   quaternion_local_parameterization);      
-
-      if (cnt == 1) {
-        // fix first state's velocity and pose constant
-        // states[cnt - 1].vel << 0, 0, 0;
-        // states[cnt - 1].q.w() = 0;
-        // states[cnt - 1].q.vec() << 0, 0, 0;
-        // problem.SetParameterization(states[cnt - 1].vel.data(), 
-        //                             new ceres::SubsetParameterization(3, {0, 0, 0}));
-        problem.SetParameterization(states[cnt - 1].q.coeffs().data(), 
-                                    new ceres::SubsetParameterization(4, {1, 0, 0, 0}));
-      } 
     }
 
     cnt++;
@@ -214,7 +221,6 @@ int main(int argc, char** argv) {
     }
   } 
 
-  // TODO Solver
   ceres::Solver::Options options;
   options.linear_solver_type = ceres::DENSE_SCHUR;
   options.minimizer_progress_to_stdout = true;
