@@ -84,6 +84,7 @@ struct PredictionError{
                   const T* const q_b_ptr,
                   const T* const pos_e_ptr,
                   const T* const vel_e_ptr,
+                  const T* const bias_ptr,
                   const T* const q_e_ptr,
                   T* residuals_ptr) const {
     Eigen::Matrix<T, 9, 1> residuals(residuals_ptr);
@@ -105,9 +106,10 @@ struct PredictionError{
     residuals.block(6, 0, 3, 1) = q_delta.vec();
 
     // vel error
+    const Eigen::Matrix<T, 3, 1> bias(bias_ptr);
     const Eigen::Matrix<T, 3, 1> vel_b(vel_b_ptr);
     const Eigen::Matrix<T, 3, 1> vel_e(vel_e_ptr);
-    residuals.block(3, 0, 3, 1) = vel_b + (q_b * acc_measured_.template cast<T>() - GRAVITY) * DT - vel_e;
+    residuals.block(3, 0, 3, 1) = vel_b + (q_b * (acc_measured_.template cast<T>() - bias) - GRAVITY) * DT - vel_e;
 
     // pos error
     const Eigen::Matrix<T, 3, 1> pos_b(pos_b_ptr);
@@ -119,7 +121,7 @@ struct PredictionError{
   
   static CostFunction* Create(const Eigen::Vector3d& acc_measured,
                               const Eigen::Vector3d& omega_measured) {
-    return new AutoDiffCostFunction<PredictionError, 9, 3, 3, 4, 3, 3, 4>(
+    return new AutoDiffCostFunction<PredictionError, 9, 3, 3, 4, 3, 3, 4, 3>(
       new PredictionError(acc_measured, omega_measured));
   }
 
@@ -182,6 +184,7 @@ int main(int argc, char** argv) {
   // int cnt = data.size();
   int cnt = 2;
 
+  Eigen::Vector3d bias = Eigen::Vector3d::Random();
   std::vector<State, Eigen::aligned_allocator<State>> states(cnt);
   std::cout << "states size: " << states.size() << std::endl;
   Problem problem;
@@ -208,7 +211,8 @@ int main(int argc, char** argv) {
                                states[cnt - 1].q.coeffs().data(),
                                states[cnt].pos.data(),
                                states[cnt].vel.data(),
-                               states[cnt].q.coeffs().data());
+                               states[cnt].q.coeffs().data(),
+                               bias.data());
       problem.SetParameterization(states[cnt - 1].q.coeffs().data(),
                                   quaternion_local_parameterization);      
       problem.SetParameterization(states[cnt].q.coeffs().data(),
