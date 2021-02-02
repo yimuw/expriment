@@ -37,6 +37,7 @@ int main(int argc, char* argv[]) {
     double t = i * delta_t;
     auto pose = scenario.pose(t);
 
+    //TODO change GRAVITY{0,0,9.8}
     const Vector3 GRAVITY{0,0,0};
     Vector3 measuredAcc = scenario.acceleration_b(t) -
                             scenario.rotation(t).transpose() * GRAVITY;
@@ -54,12 +55,12 @@ int main(int argc, char* argv[]) {
       }
     }
 
-    for(int j = 0; i < 3; ++i) {
+    for(int j = 0; j < 3; ++j) {
       f << measuredAcc(j);
       f << ",";
     }
 
-    for(int j = 0; i < 3; ++i) {
+    for(int j = 0; j < 3; ++j) {
       f << measuredOmega(j);
       f << ",";
     }
