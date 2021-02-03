@@ -92,16 +92,24 @@ struct PredictionError{
     // quat error
     const Eigen::Quaternion<T> q_b(q_b_ptr);
     const Eigen::Quaternion<T> q_e(q_e_ptr);
-    // https://gamedev.stackexchange.com/questions/108920/applying-angular-velocity-to-quaternion 
+    
     Eigen::Quaternion<T> q_new;
-    Eigen::Quaterniond q_omega;
     Eigen::Quaternion<T> q_add; 
-    q_omega.w() = 0;
-    q_omega.vec() = omega_measured_ * DT * 0.5;
-    q_add = q_omega.template cast<T>() * q_b;
-    q_new.w() = q_b.w() + q_add.w();
-    q_new.vec() = q_b.vec() + q_add.vec();
+    
+    // // https://gamedev.stackexchange.com/questions/108920/applying-angular-velocity-to-quaternion 
+    // Eigen::Quaternion<T> q_omega;
+    // // q_omega.w() = 0;
+    // q_omega.vec() = omega_measured_.template cast<T>() * DT * 0.5;
+    // q_add = q_omega * q_b;
+    // q_new.w() = q_b.w() + q_add.w();
+    // q_new.vec() = q_b.vec() + q_add.vec();
 
+    Eigen::Vector3d rotated = omega_measured_ * DT;
+    double angle = rotated.norm();
+    Eigen::Vector3d axis = rotated.normalized();
+    q_add = Eigen::AngleAxisd(angle, axis).template cast<T>();
+    q_new = q_b * q_add;
+  
     Eigen::Quaternion<T> q_delta = q_e.conjugate() * q_new;
     residuals.block(6, 0, 3, 1) = q_delta.vec();
 
@@ -226,7 +234,7 @@ int main(int argc, char** argv) {
   } 
 
   ceres::Solver::Options options;
-  options.linear_solver_type = ceres::DENSE_SCHUR;
+  options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
   options.minimizer_progress_to_stdout = true;
 
   ceres::Solver::Summary summary;
