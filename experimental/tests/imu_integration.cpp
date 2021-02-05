@@ -31,13 +31,22 @@ Matrix3d qua_integration(const Matrix3d &R0, const std::vector<Vector3d> &w_vec)
         constexpr double DT = 1.0;
 
         Eigen::Quaterniond q_new;
-        Eigen::Quaterniond q_omega;
         Eigen::Quaterniond q_add; 
-        q_omega.w() = 0;
-        q_omega.vec() = omega_measured_ * DT * 0.5;
-        q_add = q_omega * q;
-        q_new.w() = q.w() + q_add.w();
-        q_new.vec() = q.vec() + q_add.vec();
+
+        // Method 1 
+        // Eigen::Quaterniond q_omega;
+        // q_omega.w() = 0;
+        // q_omega.vec() = omega_measured_ * DT * 0.5;
+        // q_add = q_omega * q;
+        // q_new.w() = q.w() + q_add.w();
+        // q_new.vec() = q.vec() + q_add.vec();
+
+        // Method 2
+        Eigen::Vector3d rotated = omega_measured_ * DT;
+        double angle = rotated.norm();
+        Eigen::Vector3d axis = rotated.normalized();
+        q_add = Eigen::AngleAxisd(angle, axis);
+        q_new = q * q_add;
 
         q = q_new;
 
@@ -104,6 +113,8 @@ void test1()
     mat_integration(R0, w_vec);
 
     qua_integration(R0, w_vec);
+    
+    std::cout << std::endl;
 }
 
 void test2()
@@ -121,6 +132,8 @@ void test2()
     mat_integration(R0, w_vec);
 
     qua_integration(R0, w_vec);
+    
+    std::cout << std::endl;
 }
 
 
@@ -141,6 +154,8 @@ void test3()
     mat_integration(R0, w_vec);
 
     qua_integration(R0, w_vec);
+
+    std::cout << std::endl;
 }
 
 int main() {
