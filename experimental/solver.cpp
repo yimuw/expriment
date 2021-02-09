@@ -41,6 +41,34 @@ struct Measurement{
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
+struct PositionError {
+	PositionError(const Eigen::Vector3d& pos_measured) 
+		: pos_measured_(pos_measured) {}
+
+	template <typename T>
+	bool operator()(const T* const pos_hat_ptr,
+									T* residuals_ptr) const {
+		Eigen::Matrix<T, 3, 1> pos_hat(pos_hat_ptr);
+		Eigen::Matrix<T, 3, 1> pos_delta = pos_hat - pos_measured_.template cast<T>();	
+
+    for (int i = 0; i < 3; i++) {
+      residuals_ptr[i] = pos_delta[i];
+    }
+		return true;
+	}
+
+	static CostFunction* Create(const Eigen::Vector3d& pos_measured) {
+		return new AutoDiffCostFunction<PositionError, 3, 3>(
+			new PositionError(pos_measured)
+		);
+	}
+
+EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+
+private:
+	const Eigen::Vector3d pos_measured_;
+};
+
 struct PoseError {
   PoseError(const Eigen::Vector3d& pos_measured,
             const Eigen::Quaterniond& q_measured)
@@ -58,7 +86,7 @@ struct PoseError {
 
     Eigen::Quaternion<T> q_hat(q_hat_ptr);
     Eigen::Quaternion<T> q_delta = q_measured_.conjugate().template cast<T>() * q_hat;
-    residuals.template block<3, 1>(3, 0) = T(2.0) * q_delta.vec();
+    residuals.template block<3, 1>(3, 0) = q_delta.vec();
     for (int i = 0; i < 6; i++) {
       residuals_ptr[i] = residuals[i];
     }
@@ -117,7 +145,7 @@ struct PredictionError{
     q_new = q_b * q_add;
   
     Eigen::Quaternion<T> q_delta = q_e.conjugate() * q_new;
-    residuals.template block<3, 1>(6, 0) = T(2.0) * q_delta.vec();
+    residuals.template block<3, 1>(6, 0) = q_delta.vec();
 
     // vel error
     const Eigen::Matrix<T, 3, 1> bias(bias_ptr);
@@ -263,7 +291,7 @@ void save_states(const std::string& filename,
 
   for (auto& state : states) {
     Eigen::Matrix3d rot = state.q.matrix();
-    outfile << rot << "\n" << state.pos.transpose() << "\n" << state.vel.transpose() << "\n";
+    outfile << rot << "\n" << state.pos.transpose() << "\n" << state.vel.transpose() << "\n\n";
   }
 } 
 
@@ -317,13 +345,17 @@ int main(int argc, char** argv) {
       new ceres::EigenQuaternionParameterization;
 
   for (int i = 0; i < cnt; i++) {
-    ceres::CostFunction* pos_cost_function = PoseError::Create(data[i].twr, data[i].qwr);
-    problem.AddResidualBlock(pos_cost_function,
+    ceres::CostFunction* position_cost_function = PositionError::Create(data[i].twr);
+    problem.AddResidualBlock(position_cost_function,
                              loss_function,
-                             states[i].pos.data(),
-                             states[i].q.coeffs().data());
-    problem.SetParameterization(states[i].q.coeffs().data(),
-                                quaternion_local_parameterization);      
+                             states[i].pos.data());
+    // ceres::CostFunction* pos_cost_function = PoseError::Create(data[i].twr, data[i].qwr);
+    // problem.AddResidualBlock(pos_cost_function,
+    //                          loss_function,
+    //                          states[i].pos.data(),
+    //                          states[i].q.coeffs().data());
+    // problem.SetParameterization(states[i].q.coeffs().data(),
+    //                             quaternion_local_parameterization);      
     if (i > 0) {
       ceres::CostFunction* pred_cost_function = PredictionError::Create(data[i].acc, data[i].omega);
       problem.AddResidualBlock(pred_cost_function,
@@ -349,8 +381,13 @@ int main(int argc, char** argv) {
 
   // set bias to constant
   // problem.SetParameterBlockConstant(bias.data());
+  // Eigen::Quaterniond q_noise(Eigen::AngleAxisd(0.1, Eigen::Vector3d::Random().normalized()));
+  // states[0].q = data[0].qwr * q_noise;
+  // states[0].q = data[0].qwr;
+  // problem.SetParameterBlockConstant(states[0].q.coeffs().data());
+
   ceres::Solver::Options options;
-	options.max_num_iterations = 30;
+	options.max_num_iterations = 200;
   options.linear_solver_type = ceres::DENSE_SCHUR;
   // options.linear_solver_type = ceres::SPARSE_NORMAL_CHOLESKY;
   options.minimizer_progress_to_stdout = true;
@@ -358,21 +395,23 @@ int main(int argc, char** argv) {
   ceres::Solver::Summary summary;
   ceres::Solve(options, &problem, &summary);
   std::cout << summary.FullReport() << "\n";
+  
+  if (false) {
+    output_measurement(data[0]);
+    output_measurement(data[1]);
+    output_measurement(data[2]);
 
-  output_measurement(data[0]);
-  output_measurement(data[1]);
-  output_measurement(data[2]);
-
-  for (int i = 0; i < states.size(); i++) {
-    std::cout << "Estimated State:" << i << " \n" << "R: \n" << states[i].q.matrix()
-                                            << "\nt: \n" << states[i].pos
-                                            << "\nvel: \n" << states[i].vel << std::endl;
+    for (int i = 0; i < states.size(); i++) {
+      std::cout << "Estimated State:" << i << " \n" << "R: \n" << states[i].q.matrix()
+                                              << "\nt: \n" << states[i].pos
+                                              << "\nvel: \n" << states[i].vel << std::endl;
+    }
   }
 
-
-  std::string est_filename = "./est_states.txt";
+  std::string est_filename = "./results/est_no_ori_measure_nofixfirst_states.txt";
+  // std::string est_filename = "./results/est_position_predic_ori_states.txt";
   save_states(est_filename, states);
-  std::string gt_filename = "./gt_states.txt";
+  std::string gt_filename = "./results/gt_states.txt";
   save_states(gt_filename, gt_states);
   return 0;
 }

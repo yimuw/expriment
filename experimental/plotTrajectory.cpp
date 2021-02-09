@@ -18,9 +18,6 @@ struct State{
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
 };
 
-// path to trajectory file
-string est_traj_file = "./est_states.txt";
-string gt_traj_file = "./gt_states.txt";
 
 std::vector<std::vector<double>> readSensorData(std::string);
 std::vector<State, Eigen::aligned_allocator<State>> readStates(std::string);
@@ -29,12 +26,18 @@ void DrawTrajectoryComparison(vector<Isometry3d, Eigen::aligned_allocator<Isomet
                               vector<Isometry3d, Eigen::aligned_allocator<Isometry3d>>);
 
 int main(int argc, char **argv) {
-  // if(argc < 2) {
-  //   std::cout << "missing arg for the csv file" << std::endl;
-  // }
+  if(argc < 3) {
+    std::cout << "missing arg for the file" << std::endl;
+  }
 
   // std::string path = argv[1];
   // std::vector<std::vector<double>> data = readSensorData(path);
+  
+  // path to trajectory file
+  // string est_traj_file = "./results/est_states.txt";
+  // string gt_traj_file = "./results/gt_states.txt";
+  string est_traj_file = argv[1];
+  string gt_traj_file = argv[2];
   
   std::vector<State, Eigen::aligned_allocator<State>> states = readStates(est_traj_file);
   std::vector<State, Eigen::aligned_allocator<State>> gt_states = readStates(gt_traj_file);
