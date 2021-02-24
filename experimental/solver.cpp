@@ -296,6 +296,19 @@ void save_states(const std::string& filename,
 } 
 
 
+double abs_pos_error(const std::vector<State, Eigen::aligned_allocator<State>>& states,
+                     const std::vector<State, Eigen::aligned_allocator<State>>& gt_states) {
+  double err = 0.0;
+  std::cout << "abs_pos_err by step: ";
+  for (int i = 0; i < states.size(); i++) {
+    double step_err = (states[i].pos - gt_states[i].pos).norm();
+    err += step_err;
+    std::cout << step_err << " ";
+  }
+  std::cout << std::endl;
+  return err;
+}
+
 int main(int argc, char** argv) {
   if(argc < 2) {
     std::cout << "missing arg for the csv file" << std::endl;
@@ -413,5 +426,8 @@ int main(int argc, char** argv) {
   save_states(est_filename, states);
   std::string gt_filename = "./results/gt_states.txt";
   save_states(gt_filename, gt_states);
+  
+  double err = abs_pos_error(states, gt_states); 
+  std::cout << "absolute position error: " << err << std::endl;
   return 0;
 }

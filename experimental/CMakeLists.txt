@@ -26,6 +26,15 @@ target_include_directories(solver
 target_link_libraries(solver
                       ${CERES_LIBRARIES})
 
+add_executable(solverLieNum
+               solverLieNum.cpp)
+target_include_directories(solverLieNum
+                            PRIVATE
+                            ${CERES_INCLUDE_DIRS}
+                            ${EIGEN3_INCLUDE_DIR})
+target_link_libraries(solverLieNum
+                      ${CERES_LIBRARIES})
+
 add_executable(simple_solver
                simple_solver.cpp)
 target_include_directories(simple_solver
@@ -40,6 +49,7 @@ include_directories(${Pangolin_INCLUDE_DIRS})
 add_executable(plotTrajectory plotTrajectory.cpp)
 target_link_libraries(plotTrajectory ${Pangolin_LIBRARIES})
 target_link_libraries(solverFixedLag ${Pangolin_LIBRARIES})
+target_link_libraries(solverLieNum ${Pangolin_LIBRARIES})
 
 
 

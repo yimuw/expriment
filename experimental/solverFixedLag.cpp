@@ -87,8 +87,9 @@ struct StateError {
     Eigen::Quaternion<T> q_delta = q_state_.conjugate().template cast<T>() * q_hat;
     residuals.template block<3, 1>(6, 0) = q_delta.vec();
 
-    // bias error 
-    residuals.template block<3, 1>(9, 0) = bias_hat - bias_state_.template cast<T>();
+    // bias error
+    double bias_weight = 1.5;
+    residuals.template block<3, 1>(9, 0) = T(bias_weight) * (bias_hat - bias_state_.template cast<T>());
 
     // marginal factor
     residuals = sqrt_cov_ * residuals;
@@ -275,7 +276,6 @@ public:
 														 all_states[marginal_idx].bias.data());
     problem.SetParameterization(all_states[marginal_idx].q.coeffs().data(),
                                 quaternion_local_parameterization);      
-		
 		for (int i = marginal_idx + 1; i < state_num; i++) {
 			ceres::CostFunction* pos_cost_function = PoseError::Create(measurement.twr,
 																																 measurement.qwr); 
@@ -389,7 +389,7 @@ public:
     Eigen::LLT<Eigen::Matrix<double, 12, 12>> lltOfcovinv(cov.inverse()); // compute the Cholesky decomposition
     sqrt_cov = lltOfcovinv.matrixU();
 
-    sqrt_cov.block<3, 3>(9, 9) = Matrix3d::Identity();
+    // sqrt_cov.block<3, 3>(9, 9) = Matrix3d::Identity();
     std::cout << "sqrt_cov: \n" << sqrt_cov << std::endl;
     return true;
 	}
@@ -461,6 +461,18 @@ std::vector<Measurement, Eigen::aligned_allocator<Measurement>> readSensorData(s
   return ret;
 }
 
+double abs_pos_error(const std::vector<State, Eigen::aligned_allocator<State>>& states,
+                     const std::vector<State, Eigen::aligned_allocator<State>>& gt_states) {
+  double err = 0.0;
+  std::cout << "abs_pos_err by step: ";
+  for (int i = 0; i < states.size(); i++) {
+    double step_err = (states[i].pos - gt_states[i].pos).norm();
+    err += step_err;
+    std::cout << step_err << " ";
+  }
+  std::cout << std::endl;
+  return err;
+}
 
 int main(int argc, char** argv) {
   if(argc < 2) {
@@ -511,9 +523,13 @@ int main(int argc, char** argv) {
     Twr.pretranslate(gt_states[i].pos / 20); // manually divided by 20 to zoom out
     gt_poses.push_back(Twr);
   }
+
+  double err = abs_pos_error(states, gt_states); 
+  std::cout << "absolute position error: " << err << std::endl;
   DrawTrajectoryComparison(poses, gt_poses);
 	return 0;
 }
+
 void DrawTrajectoryComparison(vector<Isometry3d, Eigen::aligned_allocator<Isometry3d>> poses,
                               vector<Isometry3d, Eigen::aligned_allocator<Isometry3d>> gt_poses) {
     // create pangolin window and plot the trajectory
